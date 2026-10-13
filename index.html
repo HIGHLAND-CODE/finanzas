@@ -61,10 +61,11 @@ function DEF(){return({movs:[],deudas:[{id:'santander',nombre:'Santander refinan
   {id:'mp-jun',nombre:'Mercado Pago préstamo (9 jun, 12 cuotas)',cuota:75688.24,restantes:9,inicio:'2026-10'},
   {id:'bc-vehiculo',nombre:'Banco de Córdoba PP vehículo usado',cuota:6659.21,restantes:17,inicio:'2026-11'},
   {id:'bc-personal',nombre:'Banco de Córdoba préstamo personal',cuota:442484.86,cuotas:[446328.17,442884.60,442484.86],restantes:17,inicio:'2026-11'},
-  {id:'bc-73',nombre:'Banco de Córdoba préstamo (73 cuotas)',cuota:18230.08,restantes:20,inicio:'2026-11'}],seedVer:5,deudasMes:[],cortes:{},aj:{meses:24,rend:0,meta:0,inicial:0},
+  {id:'bc-73',nombre:'Banco de Córdoba préstamo (73 cuotas)',cuota:18230.08,restantes:20,inicio:'2026-11'},
+  {id:'sim-tarjeta',nombre:'Préstamo en trámite (36 cuotas, TNA 60%)',cuota:323214.02,restantes:36,inicio:'2026-12',sim:true}],seedVer:6,incluirSim:false,deudasMes:[],cortes:{},aj:{meses:24,rend:0,meta:0,inicial:0},
   sueldo:{base:{mes:'2025-04',monto:1200000},extras:{'2026-07':200000},ipcEst:2,
   ipc:{'2025-04':2.8,'2025-05':1.5,'2025-06':1.6,'2025-07':1.9,'2025-08':1.9,'2025-09':2.1,'2025-10':2.3,'2025-11':2.5,'2025-12':2.8,'2026-01':2.9,'2026-02':2.9,'2026-03':3.4,'2026-04':2.6,'2026-05':2.1,'2026-06':1.9,'2026-07':2.1}}})}
-function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s){const r=Object.assign(DEF(),s);if((s.seedVer||0)<5){const ids=new Set((s.deudas||[]).map(x=>x.id));DEF().deudas.forEach(x=>{if(!ids.has(x.id))r.deudas=[...(r.deudas||[]),x]});r.seedVer=5}return r}}catch(e){}return DEF()}
+function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s){const r=Object.assign(DEF(),s);if((s.seedVer||0)<6){const ids=new Set((s.deudas||[]).map(x=>x.id));DEF().deudas.forEach(x=>{if(!ids.has(x.id))r.deudas=[...(r.deudas||[]),x]});r.seedVer=6}return r}}catch(e){}return DEF()}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){alert('No se pudo guardar en el navegador. Usá Exportar para respaldar.')}}
 function ym(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
 function addM(m,n){const [y,mo]=m.split('-').map(Number);return ym(new Date(y,mo-1+n,1))}
@@ -82,7 +83,8 @@ const off=d=>d.inicio?Math.max(0,(+d.inicio.slice(0,4)-new Date().getFullYear())
 // cuota k-ésima pendiente (0 = la próxima): usa d.cuotas si se conoce el monto de ese mes, si no d.cuota
 const cuotaEn=(d,k)=>d.cuotas&&k<d.cuotas.length?d.cuotas[k]:d.cuota;
 const restoDeuda=d=>{let t=0;for(let k=0;k<d.restantes;k++)t+=cuotaEn(d,k);return t};
-const cuotasActivas=i=>S.deudas.filter(d=>i>=off(d)&&i<off(d)+d.restantes); // i = meses desde ahora (0 = este mes)
+const deudasAct=()=>S.deudas.filter(d=>!d.sim||S.incluirSim); // las 'sim' (préstamos en trámite) cuentan solo si se activa la simulación
+const cuotasActivas=i=>deudasAct().filter(d=>i>=off(d)&&i<off(d)+d.restantes); // i = meses desde ahora (0 = este mes)
 const varMes=m=>sum((S.deudasMes||[]).filter(x=>x.mes===m).map(x=>x.monto)); // deudas puntuales de un mes
 const cuotasMes=i=>sum(cuotasActivas(i).map(d=>cuotaEn(d,i-off(d))))+varMes(addM(ym(new Date()),i));
 const cuotasDeMes=m=>{const i=(+m.slice(0,4)-new Date().getFullYear())*12+(+m.slice(5)-1-new Date().getMonth());return i>=0?cuotasMes(i):varMes(m)};
@@ -211,8 +213,8 @@ function addMov(e){e.preventDefault();const f=e.target,ing=f.tipo.value==='ingre
 function delMov(id){S.movs=S.movs.filter(x=>x.id!==id);save();render()}
 
 function vDeudas(){
-  const total=sum(S.deudas.map(restoDeuda));
-  const fin=S.deudas.length?Math.max(...S.deudas.map(d=>off(d)+d.restantes-1)):0;
+  const total=sum(deudasAct().map(restoDeuda));
+  const fin=deudasAct().length?Math.max(...deudasAct().map(d=>off(d)+d.restantes-1)):0;
   return `<div class="card"><h2>Nueva deuda o cuota</h2>
   <form onsubmit="addDeuda(event)">
     <label>Nombre<input name="nombre" required placeholder="Tarjeta, préstamo, celular…"></label>
@@ -233,13 +235,16 @@ function vDeudas(){
   <div class="grid">
     <div class="card kpi"><small>Cuotas por mes (hoy)</small><b class="warn">${fmt(cuotasMes(0))}</b></div>
     <div class="card kpi"><small>Total que falta pagar</small><b>${fmt(total)}</b></div>
-    <div class="card kpi"><small>Libre de deudas</small><b>${S.deudas.length?mLabel(addM(ym(new Date()),fin)):'—'}</b></div>
+    <div class="card kpi"><small>Libre de deudas</small><b>${deudasAct().length?mLabel(addM(ym(new Date()),fin)):'—'}</b></div>
   </div>
-  <div class="card scroll"><h2>Deudas activas</h2>${S.deudas.length?`<table><tr><th>Nombre</th><th class="n">Cuota</th><th class="n">Restantes</th><th class="n">Falta</th><th>1.ª pendiente</th><th>Termina</th><th></th></tr>${S.deudas.slice().sort((a,b)=>a.restantes-b.restantes).map(d=>`<tr><td>${esc(d.nombre)}</td><td class="n">${fmt(cuotaEn(d,0))}</td><td class="n">${d.restantes}</td><td class="n">${fmt(restoDeuda(d))}</td><td>${mLabel(addM(ym(new Date()),off(d)))}</td><td>${mLabel(addM(ym(new Date()),off(d)+d.restantes-1))}</td><td style="white-space:nowrap"><button class="btn ghost" onclick="pagar('${d.id}')">Pagué una cuota</button> <button class="x" onclick="delDeuda('${d.id}')" title="Borrar">✕</button></td></tr>`).join('')}</table><p class="mut" style="margin-bottom:0">Las cuotas se restan solas en la proyección de ahorro, no las cargues también como gasto.</p>`:'<p class="mut">Sin deudas cargadas.</p>'}</div>`;
+  <div class="card"><label style="flex-direction:row;align-items:center;gap:8px;color:var(--tx);font-size:15px"><input type="checkbox" ${S.incluirSim?'checked':''} onchange="toggleSim(this.checked)"> Incluir préstamos en trámite (simulación) en el Resumen y la proyección</label></div>
+  <div class="card scroll"><h2>Deudas activas</h2>${S.deudas.length?`<table><tr><th>Nombre</th><th class="n">Cuota</th><th class="n">Restantes</th><th class="n">Falta</th><th>1.ª pendiente</th><th>Termina</th><th></th></tr>${S.deudas.slice().sort((a,b)=>a.restantes-b.restantes).map(d=>`<tr><td>${esc(d.nombre)}${d.sim?' <span class="tag p">simulación</span>':''}</td><td class="n">${fmt(cuotaEn(d,0))}</td><td class="n">${d.restantes}</td><td class="n">${fmt(restoDeuda(d))}</td><td>${d.sim?`<input type="month" value="${d.inicio}" onchange="setIni('${d.id}',this.value)" style="width:140px">`:mLabel(addM(ym(new Date()),off(d)))}</td><td>${mLabel(addM(ym(new Date()),off(d)+d.restantes-1))}</td><td style="white-space:nowrap"><button class="btn ghost" onclick="pagar('${d.id}')">Pagué una cuota</button> <button class="x" onclick="delDeuda('${d.id}')" title="Borrar">✕</button></td></tr>`).join('')}</table><p class="mut" style="margin-bottom:0">Las cuotas se restan solas en la proyección de ahorro, no las cargues también como gasto.</p>`:'<p class="mut">Sin deudas cargadas.</p>'}</div>`;
 }
 function addDeuda(e){e.preventDefault();const f=e.target;S.deudas.push({id:uid(),nombre:f.nombre.value.trim(),cuota:+f.cuota.value,restantes:Math.floor(+f.rest.value),inicio:f.ini.value});save();render()}
 function addDeudaMes(e){e.preventDefault();const f=e.target;(S.deudasMes=S.deudasMes||[]).push({id:uid(),mes:f.mes.value,nombre:f.nombre.value.trim(),monto:+f.monto.value});save();render()}
 function delDeudaMes(id){S.deudasMes=S.deudasMes.filter(x=>x.id!==id);save();render()}
+function toggleSim(v){S.incluirSim=v;save();render()}
+function setIni(id,v){const d=S.deudas.find(x=>x.id===id);if(d&&v){d.inicio=v;save();render()}}
 function pagar(id){const d=S.deudas.find(x=>x.id===id);if(d){d.restantes--;if(d.cuotas)d.cuotas=d.cuotas.slice(1);if(d.inicio)d.inicio=addM(d.inicio,1);if(d.restantes<=0)S.deudas=S.deudas.filter(x=>x.id!==id)}save();render()}
 function delDeuda(id){if(confirm('¿Borrar esta deuda?')){S.deudas=S.deudas.filter(x=>x.id!==id);save();render()}}
 
@@ -267,7 +272,8 @@ function vAhorro(){
     <label>Ahorro actual<input name="inicial" type="number" step="any" value="${aj.inicial}" style="width:130px"></label>
     <label>Rendimiento anual %<input name="rend" type="number" step="any" value="${aj.rend}" style="width:110px"></label>
     <label>Meta de ahorro<input name="meta" type="number" min="0" step="any" value="${aj.meta}" style="width:130px"></label>
-  </form></div>
+  </form>
+  <label style="flex-direction:row;align-items:center;gap:8px;color:var(--tx);font-size:15px;margin-top:10px"><input type="checkbox" ${S.incluirSim?'checked':''} onchange="toggleSim(this.checked)"> Incluir préstamos en trámite (simulación)</label></div>
   <div class="grid">
     <div class="card kpi"><small>Ahorro mensual hoy (sin cuotas)</small><b class="${a.base>=0?'ok':'bad'}">${fmt(a.base)}</b></div>
     <div class="card kpi"><small>Saldo en ${fin} meses</small><b>${fmt(a.pts[fin])}</b></div>
