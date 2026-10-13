@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mis Finanzas</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#1b2330;--mut:#6b7686;--bd:#e3e7ee;--ac:#2563eb;--ok:#15803d;--bad:#c62828;--warn:#b45309}
+@media (prefers-color-scheme:dark){:root{--bg:#10141b;--card:#181e28;--tx:#e8ecf3;--mut:#93a0b4;--bd:#283040;--ac:#5b8def;--ok:#4ade80;--bad:#f87171;--warn:#fbbf24}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,Segoe UI,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:14px 16px;max-width:1000px;margin:auto}
+h1{font-size:20px;margin:0}
+nav{display:flex;gap:4px;flex-wrap:wrap;max-width:1000px;margin:auto;padding:0 16px}
+nav button{border:1px solid var(--bd);background:var(--card);color:var(--tx);padding:8px 14px;border-radius:8px;cursor:pointer;font:inherit}
+nav button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+main{max-width:1000px;margin:auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:16px}
+.card h2{font-size:16px;margin:0 0 10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.kpi small{color:var(--mut);display:block}.kpi b{font-size:22px}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.mut{color:var(--mut)}
+form{display:flex;flex-wrap:wrap;gap:8px;align-items:end}
+label{display:flex;flex-direction:column;font-size:12px;color:var(--mut);gap:3px}
+input,select,button.btn{font:inherit;padding:7px 9px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx)}
+button.btn{background:var(--ac);color:#fff;border-color:var(--ac);cursor:pointer}
+button.ghost{background:transparent;color:var(--tx);border-color:var(--bd)}
+button.x{background:none;border:none;color:var(--bad);cursor:pointer;font-size:16px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--bd)}
+th{font-size:12px;color:var(--mut);font-weight:600}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto}
+.bar{height:10px;background:var(--bd);border-radius:5px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ac)}
+.row{display:flex;gap:10px;align-items:center;margin:6px 0}.row .l{width:130px;flex:none}.row .bar{flex:1}.row .v{width:100px;text-align:right;flex:none}
+.tag{font-size:11px;padding:2px 7px;border-radius:10px;border:1px solid var(--bd)}
+.tag.p{color:var(--warn);border-color:var(--warn)}
+svg text{fill:var(--mut);font-size:11px}
+@media(max-width:560px){.row .l{width:90px}.row .v{width:80px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>💰 Mis Finanzas</h1>
+  <div>
+    <button class="btn ghost" onclick="exportar()">Exportar</button>
+    <label style="display:inline-flex;vertical-align:bottom"><input type="file" id="imp" accept=".json" style="display:none" onchange="importar(event)"><button class="btn ghost" onclick="document.getElementById('imp').click()">Importar</button></label>
+  </div>
+</header>
+<nav id="nav"></nav>
+<main id="main"></main>
+
+<script>
+const KEY='finanzas_v1';
+const TABS=[['resumen','Resumen'],['movs','Ingresos y gastos'],['deudas','Deudas y cuotas'],['recortes','Qué recortar'],['ahorro','Proyección de ahorro']];
+const CATS=['Vivienda','Comida','Supermercado','Transporte','Servicios','Salud','Educación','Salidas','Suscripciones','Ropa','Compras','Viajes','Otros'];
+let S=load(), tab='resumen', mesSel=ym(new Date());
+
+function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s)return Object.assign({movs:[],deudas:[],cortes:{},aj:{meses:24,rend:0,meta:0,inicial:0}},s)}catch(e){}return{movs:[],deudas:[],cortes:{},aj:{meses:24,rend:0,meta:0,inicial:0}}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){alert('No se pudo guardar en el navegador. Usá Exportar para respaldar.')}}
+function ym(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
+function addM(m,n){const [y,mo]=m.split('-').map(Number);return ym(new Date(y,mo-1+n,1))}
+function mLabel(m){const [y,mo]=m.split('-').map(Number);return new Date(y,mo-1,1).toLocaleDateString('es-AR',{month:'short',year:'2-digit'})}
+const fmt=n=>'$ '+Math.round(n).toLocaleString('es-AR');
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const sum=a=>a.reduce((x,y)=>x+y,0);
+
+// ---- cálculos ----
+const movsMes=m=>S.movs.filter(x=>x.fecha.startsWith(m));
+const ingMes=m=>sum(movsMes(m).filter(x=>x.tipo==='ingreso').map(x=>x.monto));
+const gasMes=m=>sum(movsMes(m).filter(x=>x.tipo==='gasto').map(x=>x.monto));
+const cuotasActivas=i=>S.deudas.filter(d=>d.restantes>i); // i = meses desde ahora (0 = este mes)
+const cuotasMes=i=>sum(cuotasActivas(i).map(d=>d.cuota));
+function ultimosMeses(){ // hasta 3 meses con datos, contando el actual y hacia atrás
+  const hoy=ym(new Date()), out=[];
+  for(let i=0;i<3;i++){const m=addM(hoy,-i);if(movsMes(m).length)out.push(m)}
+  return out;
+}
+function promedios(){
+  const ms=ultimosMeses(), n=Math.max(ms.length,1);
+  const ing=sum(ms.map(ingMes))/n;
+  const porCat={}, presc={};
+  ms.forEach(m=>movsMes(m).filter(x=>x.tipo==='gasto').forEach(x=>{porCat[x.cat]=(porCat[x.cat]||0)+x.monto/n;if(x.prescindible)presc[x.cat]=(presc[x.cat]||0)+x.monto/n}));
+  return{ms,ing,gas:sum(Object.values(porCat)),porCat,presc};
+}
+function ahorroCortes(){const p=promedios();return sum(Object.entries(S.cortes).map(([c,pc])=>(p.porCat[c]||0)*pc/100))}
+function proyectar(conCortes){
+  const p=promedios(), base=p.ing-p.gas+(conCortes?ahorroCortes():0), r=(+S.aj.rend||0)/100/12;
+  let sal=+S.aj.inicial||0, pts=[sal], meta=null;
+  for(let i=0;i<S.aj.meses;i++){
+    sal=sal*(1+r)+base-cuotasMes(i);
+    pts.push(sal);
+    if(meta===null&&S.aj.meta>0&&sal>=S.aj.meta)meta=i+1;
+  }
+  return{pts,meta,base};
+}
+
+// ---- UI ----
+function render(){
+  document.getElementById('nav').innerHTML=TABS.map(([k,l])=>`<button class="${k===tab?'on':''}" onclick="tab='${k}';render()">${l}</button>`).join('');
+  document.getElementById('main').innerHTML=({resumen:vResumen,movs:vMovs,deudas:vDeudas,recortes:vRecortes,ahorro:vAhorro})[tab]();
+  if(tab==='ahorro')dibujar();
+}
+
+function vResumen(){
+  const ing=ingMes(mesSel), gas=gasMes(mesSel), cu=cuotasMes(0), bal=ing-gas-cu;
+  const cats={};movsMes(mesSel).filter(x=>x.tipo==='gasto').forEach(x=>cats[x.cat]=(cats[x.cat]||0)+x.monto);
+  const lista=Object.entries(cats).sort((a,b)=>b[1]-a[1]), max=lista.length?lista[0][1]:1;
+  const meses=[];for(let i=5;i>=0;i--)meses.push(addM(ym(new Date()),-i));
+  const mx=Math.max(1,...meses.map(m=>Math.max(ingMes(m),gasMes(m)+cuotasMes(0))));
+  return `<div class="card"><label style="max-width:200px">Mes<input type="month" value="${mesSel}" onchange="mesSel=this.value||mesSel;render()"></label></div>
+  <div class="grid">
+    <div class="card kpi"><small>Ingresos</small><b class="ok">${fmt(ing)}</b></div>
+    <div class="card kpi"><small>Gastos</small><b class="bad">${fmt(gas)}</b></div>
+    <div class="card kpi"><small>Cuotas de deudas</small><b class="warn">${fmt(cu)}</b></div>
+    <div class="card kpi"><small>Balance del mes</small><b class="${bal>=0?'ok':'bad'}">${fmt(bal)}</b></div>
+  </div>
+  <div class="card"><h2>Gastos por categoría</h2>${lista.length?lista.map(([c,v])=>`<div class="row"><span class="l">${esc(c)}</span><div class="bar"><i style="width:${v/max*100}%"></i></div><span class="v">${fmt(v)}</span></div>`).join(''):'<p class="mut">Sin gastos cargados este mes.</p>'}</div>
+  <div class="card"><h2>Últimos 6 meses</h2>${meses.map(m=>`<div class="row"><span class="l">${mLabel(m)}</span><div style="flex:1"><div class="bar" style="margin-bottom:3px"><i style="width:${ingMes(m)/mx*100}%;background:var(--ok)"></i></div><div class="bar"><i style="width:${gasMes(m)/mx*100}%;background:var(--bad)"></i></div></div><span class="v">${fmt(ingMes(m)-gasMes(m))}</span></div>`).join('')}<p class="mut" style="margin:6px 0 0">Verde = ingresos · Rojo = gastos · Derecha = diferencia (sin cuotas)</p></div>`;
+}
+
+function vMovs(){
+  const hoy=new Date().toISOString().slice(0,10);
+  const lista=[...S.movs].sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0,200);
+  return `<div class="card"><h2>Nuevo movimiento</h2>
+  <form onsubmit="addMov(event)">
+    <label>Fecha<input name="fecha" type="date" value="${hoy}" required></label>
+    <label>Tipo<select name="tipo" onchange="this.form.cat.disabled=this.form.presc.disabled=this.value==='ingreso'"><option value="gasto">Gasto</option><option value="ingreso">Ingreso</option></select></label>
+    <label>Categoría<select name="cat">${CATS.map(c=>`<option>${c}</option>`).join('')}</select></label>
+    <label>Descripción<input name="desc" placeholder="opcional"></label>
+    <label>Monto<input name="monto" type="number" min="0" step="any" required style="width:120px"></label>
+    <label style="flex-direction:row;align-items:center;gap:6px"><input name="presc" type="checkbox"> Prescindible</label>
+    <button class="btn">Agregar</button>
+  </form></div>
+  <div class="card scroll"><h2>Movimientos${S.movs.length>200?' (últimos 200)':''}</h2>
+  ${lista.length?`<table><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th class="n">Monto</th><th></th></tr>${lista.map(x=>`<tr><td>${x.fecha}</td><td>${x.tipo==='ingreso'?'<span class="tag">Ingreso</span>':esc(x.cat)+(x.prescindible?' <span class="tag p">prescindible</span>':'')}</td><td>${esc(x.desc||'')}</td><td class="n ${x.tipo==='ingreso'?'ok':''}">${x.tipo==='ingreso'?'+':'−'}${fmt(x.monto)}</td><td><button class="x" onclick="delMov('${x.id}')" title="Borrar">✕</button></td></tr>`).join('')}</table>`:'<p class="mut">Todavía no cargaste nada.</p>'}</div>`;
+}
+function addMov(e){e.preventDefault();const f=e.target,ing=f.tipo.value==='ingreso';
+  S.movs.push({id:uid(),fecha:f.fecha.value,tipo:f.tipo.value,cat:ing?'Ingreso':f.cat.value,desc:f.desc.value.trim(),monto:Math.abs(+f.monto.value),prescindible:!ing&&f.presc.checked});
+  save();render()}
+function delMov(id){S.movs=S.movs.filter(x=>x.id!==id);save();render()}
+
+function vDeudas(){
+  const total=sum(S.deudas.map(d=>d.cuota*d.restantes));
+  const fin=S.deudas.length?Math.max(...S.deudas.map(d=>d.restantes)):0;
+  return `<div class="card"><h2>Nueva deuda o cuota</h2>
+  <form onsubmit="addDeuda(event)">
+    <label>Nombre<input name="nombre" required placeholder="Tarjeta, préstamo, celular…"></label>
+    <label>Cuota mensual<input name="cuota" type="number" min="0" step="any" required style="width:130px"></label>
+    <label>Cuotas restantes<input name="rest" type="number" min="1" step="1" required style="width:110px"></label>
+    <button class="btn">Agregar</button>
+  </form></div>
+  <div class="grid">
+    <div class="card kpi"><small>Cuotas por mes (hoy)</small><b class="warn">${fmt(cuotasMes(0))}</b></div>
+    <div class="card kpi"><small>Total que falta pagar</small><b>${fmt(total)}</b></div>
+    <div class="card kpi"><small>Libre de deudas</small><b>${S.deudas.length?mLabel(addM(ym(new Date()),fin)):'—'}</b></div>
+  </div>
+  <div class="card scroll"><h2>Deudas activas</h2>${S.deudas.length?`<table><tr><th>Nombre</th><th class="n">Cuota</th><th class="n">Restantes</th><th class="n">Falta</th><th>Termina</th><th></th></tr>${S.deudas.slice().sort((a,b)=>a.restantes-b.restantes).map(d=>`<tr><td>${esc(d.nombre)}</td><td class="n">${fmt(d.cuota)}</td><td class="n">${d.restantes}</td><td class="n">${fmt(d.cuota*d.restantes)}</td><td>${mLabel(addM(ym(new Date()),d.restantes-1))}</td><td style="white-space:nowrap"><button class="btn ghost" onclick="pagar('${d.id}')">Pagué una cuota</button> <button class="x" onclick="delDeuda('${d.id}')" title="Borrar">✕</button></td></tr>`).join('')}</table><p class="mut" style="margin-bottom:0">Las cuotas se restan solas en la proyección de ahorro, no las cargues también como gasto.</p>`:'<p class="mut">Sin deudas cargadas.</p>'}</div>`;
+}
+function addDeuda(e){e.preventDefault();const f=e.target;S.deudas.push({id:uid(),nombre:f.nombre.value.trim(),cuota:+f.cuota.value,restantes:Math.floor(+f.rest.value)});save();render()}
+function pagar(id){const d=S.deudas.find(x=>x.id===id);if(d){d.restantes--;if(d.restantes<=0)S.deudas=S.deudas.filter(x=>x.id!==id)}save();render()}
+function delDeuda(id){if(confirm('¿Borrar esta deuda?')){S.deudas=S.deudas.filter(x=>x.id!==id);save();render()}}
+
+function vRecortes(){
+  const p=promedios(), cats=Object.entries(p.porCat).sort((a,b)=>b[1]-a[1]);
+  if(!cats.length)return `<div class="card"><p class="mut">Cargá algunos gastos para analizar dónde recortar.</p></div>`;
+  const tot=p.gas, ah=ahorroCortes();
+  return `<div class="card"><h2>Base del análisis</h2><p style="margin:0">Promedio mensual de ${p.ms.length} mes(es) con datos: gastás <b>${fmt(tot)}</b> y ganás <b>${fmt(p.ing)}</b>. Marcá en cada categoría cuánto pensás recortar.</p>
+  <p style="margin:8px 0 0"><button class="btn ghost" onclick="recortarPresc(20)">Recortar 20% de lo prescindible</button> <button class="btn ghost" onclick="S.cortes={};save();render()">Limpiar</button></p></div>
+  <div class="card scroll"><table><tr><th>Categoría</th><th class="n">Promedio/mes</th><th class="n">% del gasto</th><th>Recorte</th><th class="n">Ahorrás/mes</th></tr>
+  ${cats.map(([c,v])=>{const pc=S.cortes[c]||0,pr=p.presc[c]||0;return `<tr><td>${esc(c)}${pr>0?` <span class="tag p">${Math.round(pr/v*100)}% prescindible</span>`:''}</td><td class="n">${fmt(v)}</td><td class="n">${(v/tot*100).toFixed(0)}%</td><td><input type="range" min="0" max="100" step="5" value="${pc}" oninput="setCorte('${esc(c).replace(/'/g,"\\'")}',this.value,this)" style="width:130px"> <span>${pc}%</span></td><td class="n ok">${fmt(v*pc/100)}</td></tr>`}).join('')}
+  </table></div>
+  <div class="grid"><div class="card kpi"><small>Ahorro mensual extra</small><b class="ok" id="ahM">${fmt(ah)}</b></div><div class="card kpi"><small>En un año</small><b class="ok" id="ahA">${fmt(ah*12)}</b></div></div>`;
+}
+function setCorte(c,v,el){v=+v;if(v)S.cortes[c]=v;else delete S.cortes[c];save();el.nextElementSibling.textContent=v+'%';
+  const tr=el.closest('tr'),prom=promedios().porCat[c]||0;tr.lastElementChild.textContent=fmt(prom*v/100);
+  document.getElementById('ahM').textContent=fmt(ahorroCortes());document.getElementById('ahA').textContent=fmt(ahorroCortes()*12)}
+function recortarPresc(pc){const p=promedios();S.cortes={};Object.keys(p.presc).forEach(c=>S.cortes[c]=pc);save();render()}
+
+function vAhorro(){
+  const a=proyectar(false), b=proyectar(true), aj=S.aj, fin=aj.meses;
+  const fmtMeta=r=>r.meta?`en ${r.meta} meses (${mLabel(addM(ym(new Date()),r.meta))})`:(aj.meta>0?`no se alcanza en ${fin} meses`:'—');
+  return `<div class="card"><h2>Supuestos</h2><form onsubmit="return false" onchange="setAj(this)">
+    <label>Horizonte (meses)<input name="meses" type="number" min="1" max="120" value="${aj.meses}" style="width:110px"></label>
+    <label>Ahorro actual<input name="inicial" type="number" step="any" value="${aj.inicial}" style="width:130px"></label>
+    <label>Rendimiento anual %<input name="rend" type="number" step="any" value="${aj.rend}" style="width:110px"></label>
+    <label>Meta de ahorro<input name="meta" type="number" min="0" step="any" value="${aj.meta}" style="width:130px"></label>
+  </form></div>
+  <div class="grid">
+    <div class="card kpi"><small>Ahorro mensual hoy (sin cuotas)</small><b class="${a.base>=0?'ok':'bad'}">${fmt(a.base)}</b></div>
+    <div class="card kpi"><small>Saldo en ${fin} meses</small><b>${fmt(a.pts[fin])}</b></div>
+    <div class="card kpi"><small>Con recortes (${fmt(ahorroCortes())}/mes)</small><b class="ok">${fmt(b.pts[fin])}</b></div>
+  </div>
+  <div class="card"><h2>Evolución</h2><div id="chart"></div>
+  <p class="mut" style="margin:6px 0 0"><span style="color:var(--ac)">━</span> Sin recortes · <span style="color:var(--ok)">━</span> Con recortes · <span style="color:var(--warn)">┅</span> Meta</p>
+  <p style="margin-bottom:0">Meta: sin recortes ${fmtMeta(a)} · con recortes ${fmtMeta(b)}.<br><span class="mut">Cuando una deuda termina, su cuota pasa a ser ahorro y se nota como un salto en la curva.</span></p></div>`;
+}
+function setAj(f){S.aj={meses:Math.min(120,Math.max(1,Math.floor(+f.meses.value)||24)),inicial:+f.inicial.value||0,rend:+f.rend.value||0,meta:+f.meta.value||0};save();
+  const keep=document.activeElement&&document.activeElement.name;render();if(keep){const el=document.querySelector(`[name=${keep}]`);if(el){el.focus();el.setSelectionRange&&0}}}
+
+function dibujar(){
+  const a=proyectar(false).pts, b=proyectar(true).pts, meta=+S.aj.meta||0, W=900,H=300,L=70,R=10,T=10,B=26;
+  const all=[...a,...b,...(meta?[meta]:[]),0], mn=Math.min(...all), mx=Math.max(...all), rg=(mx-mn)||1, n=a.length-1;
+  const X=i=>L+(W-L-R)*i/n, Y=v=>T+(H-T-B)*(1-(v-mn)/rg);
+  const line=(p,c,d)=>`<polyline fill="none" stroke="${c}" stroke-width="2.5" ${d?'stroke-dasharray="5 4"':''} points="${p.map((v,i)=>X(i)+','+Y(v)).join(' ')}"/>`;
+  let g='';for(let k=0;k<=4;k++){const v=mn+rg*k/4;g+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--bd)"/><text x="${L-6}" y="${Y(v)+4}" text-anchor="end">${fmt(v)}</text>`}
+  const step=Math.max(1,Math.ceil(n/8));for(let i=0;i<=n;i+=step)g+=`<text x="${X(i)}" y="${H-6}" text-anchor="middle">${mLabel(addM(ym(new Date()),i))}</text>`;
+  g+=`<line x1="${L}" x2="${W-R}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--mut)" stroke-opacity=".5"/>`;
+  document.getElementById('chart').innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Proyección de ahorro">${g}${meta?line([meta,meta],'var(--warn)',1).replace(/points="[^"]*"/,`points="${L},${Y(meta)} ${W-R},${Y(meta)}"`):''}${line(a,'var(--ac)')}${line(b,'var(--ok)')}</svg>`;
+}
+
+// ---- respaldo ----
+function exportar(){const u=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:'application/json'}));const a=document.createElement('a');a.href=u;a.download='finanzas-'+new Date().toISOString().slice(0,10)+'.json';a.click();URL.revokeObjectURL(u)}
+function importar(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.movs))throw 0;if(confirm('Esto reemplaza tus datos actuales. ¿Seguir?')){S=Object.assign(load(),d);save();render()}}catch(x){alert('Archivo inválido')}};r.readAsText(f);e.target.value=''}
+
+render();
+</script>
+</body>
+</html>
