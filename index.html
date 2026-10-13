@@ -62,10 +62,11 @@ function DEF(){return({movs:[],deudas:[{id:'santander',nombre:'Santander refinan
   {id:'bc-vehiculo',nombre:'Banco de Córdoba PP vehículo usado',cuota:6659.21,restantes:17,inicio:'2026-11'},
   {id:'bc-personal',nombre:'Banco de Córdoba préstamo personal',cuota:442484.86,cuotas:[446328.17,442884.60,442484.86],restantes:17,inicio:'2026-11'},
   {id:'bc-73',nombre:'Banco de Córdoba préstamo (73 cuotas)',cuota:18230.08,restantes:20,inicio:'2026-11'},
-  {id:'sim-tarjeta',nombre:'Préstamo en trámite (36 cuotas, TNA 60%)',cuota:323214.02,restantes:36,inicio:'2026-12',sim:true}],seedVer:6,incluirSim:false,deudasMes:[],cortes:{},aj:{meses:24,rend:0,meta:0,inicial:0},
+  {id:'sim-tarjeta',nombre:'Préstamo en trámite (36 cuotas, TNA 60%)',cuota:323214.02,restantes:36,inicio:'2026-12',sim:true},
+  {id:'hipotecario',nombre:'Crédito hipotecario (30 años, desde ago 2022)',cuota:192800,restantes:310,inicio:'2026-10'}],seedVer:7,incluirSim:false,deudasMes:[],cortes:{},aj:{meses:24,rend:0,meta:0,inicial:0},
   sueldo:{base:{mes:'2025-04',monto:1200000},extras:{'2026-07':200000},ipcEst:2,
   ipc:{'2025-04':2.8,'2025-05':1.5,'2025-06':1.6,'2025-07':1.9,'2025-08':1.9,'2025-09':2.1,'2025-10':2.3,'2025-11':2.5,'2025-12':2.8,'2026-01':2.9,'2026-02':2.9,'2026-03':3.4,'2026-04':2.6,'2026-05':2.1,'2026-06':1.9,'2026-07':2.1}}})}
-function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s){const r=Object.assign(DEF(),s);if((s.seedVer||0)<6){const ids=new Set((s.deudas||[]).map(x=>x.id));DEF().deudas.forEach(x=>{if(!ids.has(x.id))r.deudas=[...(r.deudas||[]),x]});r.seedVer=6}return r}}catch(e){}return DEF()}
+function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s){const r=Object.assign(DEF(),s);if((s.seedVer||0)<7){const ids=new Set((s.deudas||[]).map(x=>x.id));DEF().deudas.forEach(x=>{if(!ids.has(x.id))r.deudas=[...(r.deudas||[]),x]});r.seedVer=7}return r}}catch(e){}return DEF()}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){alert('No se pudo guardar en el navegador. Usá Exportar para respaldar.')}}
 function ym(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
 function addM(m,n){const [y,mo]=m.split('-').map(Number);return ym(new Date(y,mo-1+n,1))}
