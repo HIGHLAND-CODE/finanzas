@@ -52,11 +52,14 @@ svg text{fill:var(--mut);font-size:11px}
 
 <script>
 const KEY='finanzas_v1';
-const TABS=[['resumen','Resumen'],['movs','Ingresos y gastos'],['deudas','Deudas y cuotas'],['recortes','Qué recortar'],['ahorro','Proyección de ahorro']];
+const TABS=[['resumen','Resumen'],['sueldo','Sueldo e IPC'],['movs','Ingresos y gastos'],['deudas','Deudas y cuotas'],['recortes','Qué recortar'],['ahorro','Proyección de ahorro']];
 const CATS=['Vivienda','Comida','Supermercado','Transporte','Servicios','Salud','Educación','Salidas','Suscripciones','Ropa','Compras','Viajes','Otros'];
 let S=load(), tab='resumen', mesSel=ym(new Date());
 
-function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s)return Object.assign({movs:[],deudas:[],cortes:{},aj:{meses:24,rend:0,meta:0,inicial:0}},s)}catch(e){}return{movs:[],deudas:[],cortes:{},aj:{meses:24,rend:0,meta:0,inicial:0}}}
+function DEF(){return({movs:[],deudas:[],cortes:{},aj:{meses:24,rend:0,meta:0,inicial:0},
+  sueldo:{base:{mes:'2025-04',monto:1200000},extras:{'2026-07':200000},ipcEst:2,
+  ipc:{'2025-04':2.8,'2025-05':1.5,'2025-06':1.6,'2025-07':1.9,'2025-08':1.9,'2025-09':2.1,'2025-10':2.3,'2025-11':2.5,'2025-12':2.8,'2026-01':2.9,'2026-02':2.9,'2026-03':3.4,'2026-04':2.6,'2026-05':2.1,'2026-06':1.9,'2026-07':2.1}}})}
+function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s)return Object.assign(DEF(),s)}catch(e){}return DEF()}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){alert('No se pudo guardar en el navegador. Usá Exportar para respaldar.')}}
 function ym(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
 function addM(m,n){const [y,mo]=m.split('-').map(Number);return ym(new Date(y,mo-1+n,1))}
@@ -68,7 +71,7 @@ const sum=a=>a.reduce((x,y)=>x+y,0);
 
 // ---- cálculos ----
 const movsMes=m=>S.movs.filter(x=>x.fecha.startsWith(m));
-const ingMes=m=>sum(movsMes(m).filter(x=>x.tipo==='ingreso').map(x=>x.monto));
+const ingMes=m=>sum(movsMes(m).filter(x=>x.tipo==='ingreso').map(x=>x.monto))+sum(tablaSueldo().filas.filter(f=>f.cobro===m).map(f=>f.monto));
 const gasMes=m=>sum(movsMes(m).filter(x=>x.tipo==='gasto').map(x=>x.monto));
 const cuotasActivas=i=>S.deudas.filter(d=>d.restantes>i); // i = meses desde ahora (0 = este mes)
 const cuotasMes=i=>sum(cuotasActivas(i).map(d=>d.cuota));
@@ -96,10 +99,65 @@ function proyectar(conCortes){
   return{pts,meta,base};
 }
 
+// ---- sueldo por IPC ----
+// sueldo(M) = sueldo(M-1) * (1 + IPC(M-1)) + extra(M); se cobra el 4.º día hábil del mes M+1
+function tablaSueldo(){
+  const s=S.sueldo, filas=[{mes:s.base.mes,cobro:addM(s.base.mes,1),ipcMes:null,ipc:null,extra:0,monto:+s.base.monto}];
+  let m=s.base.mes, pend=null;
+  for(let i=0;i<240;i++){
+    const nxt=addM(m,1), ipc=s.ipc[m];
+    if(ipc===undefined){pend=m;break}
+    const extra=+s.extras[nxt]||0, monto=Math.round(filas[filas.length-1].monto*(1+ipc/100))+extra;
+    filas.push({mes:nxt,cobro:addM(nxt,1),ipcMes:m,ipc,extra,monto});m=nxt;
+  }
+  return{filas,pend};
+}
+function diaHabil(m,n){const [y,mo]=m.split('-').map(Number);let c=0;for(let d=1;d<=31;d++){const f=new Date(y,mo-1,d);if(f.getMonth()!==mo-1)break;if(f.getDay()%6&&++c===n)return f}}
+const fFecha=d=>d.toLocaleDateString('es-AR',{weekday:'short',day:'numeric',month:'short'});
+function vSueldo(){
+  const {filas,pend}=tablaSueldo(), ult=filas[filas.length-1], s=S.sueldo;
+  const est=Math.round(ult.monto*(1+(+s.ipcEst||0)/100))+(+s.extras[addM(ult.mes,1)]||0);
+  const hoy=new Date(), proxM=ym(hoy), cobroMes=diaHabil(proxM,4)<new Date(hoy.getFullYear(),hoy.getMonth(),hoy.getDate())?addM(proxM,1):proxM, fc=diaHabil(cobroMes,4);
+  const cobraAhora=filas.find(f=>f.cobro===cobroMes);
+  return `<div class="grid">
+    <div class="card kpi"><small>Último sueldo calculado (${mLabel(ult.mes)})</small><b>${fmt(ult.monto)}</b></div>
+    <div class="card kpi"><small>Próximo cobro (4.º día hábil)</small><b>${fFecha(fc)}</b><small>${cobraAhora?'sueldo de '+mLabel(cobraAhora.mes)+': '+fmt(cobraAhora.monto):'sueldo de '+mLabel(addM(cobroMes,-1))+': falta cargar el IPC'}</small></div>
+    <div class="card kpi"><small>IPC pendiente de cargar</small><b class="${pend?'warn':'ok'}">${pend?mLabel(pend):'—'}</b><small>${pend?'con él se calcula el sueldo de '+mLabel(addM(pend,1)):''}</small></div>
+  </div>
+  <div class="card"><h2>Cargar IPC</h2>
+  <form onsubmit="addIpc(event)">
+    <label>Mes del IPC<input name="mes" type="month" value="${pend||ym(hoy)}" required></label>
+    <label>IPC %<input name="v" type="number" step="0.01" required style="width:100px" placeholder="2.1"></label>
+    <button class="btn">Guardar</button>
+  </form>
+  <p class="mut" style="margin:8px 0 0">El sueldo del mes M sube lo que dio el IPC del mes M−1 y se cobra en M+1. Ej.: el IPC de agosto fija el sueldo de septiembre, que cobrás en octubre.</p></div>
+  <div class="card"><h2>Estimación y ajustes</h2>
+  <form onchange="setSueldo(this)" onsubmit="return false">
+    <label>IPC estimado${pend?' de '+mLabel(pend):''} %<input name="est" type="number" step="0.01" value="${s.ipcEst}" style="width:110px"></label>
+    <label>Sueldo base (mes)<input name="bm" type="month" value="${s.base.mes}"></label>
+    <label>Monto base<input name="bv" type="number" value="${s.base.monto}" style="width:130px"></label>
+  </form>
+  <p style="margin:8px 0 0">Con ${s.ipcEst}% de IPC, el sueldo de <b>${mLabel(addM(ult.mes,1))}</b> sería aprox. <b>${fmt(est)}</b>.</p>
+  <form onsubmit="addExtra(event)" style="margin-top:10px">
+    <label>Aumento fijo desde (mes trabajado)<input name="mes" type="month" required></label>
+    <label>Monto<input name="v" type="number" step="any" required style="width:130px"></label>
+    <button class="btn ghost">Agregar aumento</button>
+  </form>
+  <div style="margin-top:8px">${Object.entries(s.extras).sort().map(([m,v])=>`<span class="tag" style="margin-right:6px">${mLabel(m)}: +${fmt(v)} <button class="x" style="font-size:12px" onclick="delExtra('${m}')">✕</button></span>`).join('')}</div></div>
+  <div class="card scroll"><h2>Historial de sueldo</h2><table><tr><th>Mes trabajado</th><th>Cobrado en</th><th>IPC aplicado</th><th class="n">Sueldo</th><th class="n">Var.</th></tr>
+  ${filas.slice().reverse().map((f,i,a)=>{const prev=a[i+1];return `<tr><td>${mLabel(f.mes)}</td><td>${mLabel(f.cobro)}</td><td>${f.ipc===null?'— (base)':mLabel(f.ipcMes)+' '+String(f.ipc).replace('.',',')+'%'+(f.extra?' + '+fmt(f.extra):'')+` <button class="x" style="font-size:12px" onclick="delIpc('${f.ipcMes}')" title="Borrar este IPC">✕</button>`}</td><td class="n">${fmt(f.monto)}</td><td class="n">${prev?'+'+((f.monto/prev.monto-1)*100).toFixed(1).replace('.',',')+'%':''}</td></tr>`}).join('')}</table>
+  <p class="mut" style="margin-bottom:0">El 4.º día hábil no descuenta feriados. Este sueldo se suma solo a tus ingresos del mes en que lo cobrás: no lo cargues también a mano como ingreso.</p></div>`;
+}
+function addIpc(e){e.preventDefault();const f=e.target;S.sueldo.ipc[f.mes.value]=+f.v.value;save();render()}
+function delIpc(m){if(confirm('¿Borrar el IPC de '+mLabel(m)+'? Los sueldos desde ahí vuelven a pendiente.')){delete S.sueldo.ipc[m];save();render()}}
+function setSueldo(f){S.sueldo.ipcEst=+f.est.value||0;if(f.bm.value&&f.bv.value)S.sueldo.base={mes:f.bm.value,monto:+f.bv.value};save();render()}
+function addExtra(e){e.preventDefault();const f=e.target;S.sueldo.extras[f.mes.value]=+f.v.value;save();render()}
+function delExtra(m){delete S.sueldo.extras[m];save();render()}
+
 // ---- UI ----
 function render(){
   document.getElementById('nav').innerHTML=TABS.map(([k,l])=>`<button class="${k===tab?'on':''}" onclick="tab='${k}';render()">${l}</button>`).join('');
-  document.getElementById('main').innerHTML=({resumen:vResumen,movs:vMovs,deudas:vDeudas,recortes:vRecortes,ahorro:vAhorro})[tab]();
+  document.getElementById('main').innerHTML=({resumen:vResumen,sueldo:vSueldo,movs:vMovs,deudas:vDeudas,recortes:vRecortes,ahorro:vAhorro})[tab]();
   if(tab==='ahorro')dibujar();
 }
 
