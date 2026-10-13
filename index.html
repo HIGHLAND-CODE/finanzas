@@ -52,7 +52,7 @@ svg text{fill:var(--mut);font-size:11px}
 
 <script>
 const KEY='finanzas_v1';
-const TABS=[['resumen','Resumen'],['sueldo','Sueldo e IPC'],['movs','Ingresos y gastos'],['deudas','Deudas y cuotas'],['recortes','Qué recortar'],['ahorro','Proyección de ahorro']];
+const TABS=[['resumen','Resumen'],['sueldo','Sueldo e IPC'],['movs','Ingresos y gastos'],['deudas','Deudas y cuotas'],['recortes','Qué recortar'],['ahorro','Proyección de ahorro'],['sync','☁ Nube']];
 const CATS=['Vivienda','Comida','Supermercado','Transporte','Servicios','Salud','Educación','Salidas','Suscripciones','Ropa','Compras','Viajes','Otros'];
 let S=load(), tab='resumen', mesSel=ym(new Date());
 
@@ -69,8 +69,54 @@ function DEF(){return({movs:[],deudas:[{id:'santander',nombre:'Santander refinan
   {id:'peaje',nombre:'Peaje',cat:'Transporte',monto:80000,desde:'2026-10'}],deudasMes:[],cortes:{},aj:{meses:24,rend:0,meta:0,inicial:0},
   sueldo:{base:{mes:'2025-04',monto:1200000},extras:{'2026-07':200000},ipcEst:2,
   ipc:{'2025-04':2.8,'2025-05':1.5,'2025-06':1.6,'2025-07':1.9,'2025-08':1.9,'2025-09':2.1,'2025-10':2.3,'2025-11':2.5,'2025-12':2.8,'2026-01':2.9,'2026-02':2.9,'2026-03':3.4,'2026-04':2.6,'2026-05':2.1,'2026-06':1.9,'2026-07':2.1}}})}
-function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s){const r=Object.assign(DEF(),s);if((s.seedVer||0)<8){const fid=new Set((r.fijos||[]).map(x=>x.id));DEF().fijos.forEach(x=>{if(!fid.has(x.id))r.fijos=[...(r.fijos||[]),x]});const ids=new Set((r.deudas||[]).map(x=>x.id));DEF().deudas.forEach(x=>{if(!ids.has(x.id))r.deudas=[...(r.deudas||[]),x]});r.seedVer=8}return r}}catch(e){}return DEF()}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){alert('No se pudo guardar en el navegador. Usá Exportar para respaldar.')}}
+function migrar(s){const r=Object.assign(DEF(),s);if((s.seedVer||0)<8){const fid=new Set((r.fijos||[]).map(x=>x.id));DEF().fijos.forEach(x=>{if(!fid.has(x.id))r.fijos=[...(r.fijos||[]),x]});const ids=new Set((r.deudas||[]).map(x=>x.id));DEF().deudas.forEach(x=>{if(!ids.has(x.id))r.deudas=[...(r.deudas||[]),x]});r.seedVer=8}return r}
+function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s)return migrar(s)}catch(e){}return DEF()}
+function saveLocal(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){alert('No se pudo guardar en el navegador. Usá Exportar para respaldar.')}}
+function save(){S._ts=Date.now();saveLocal();pushSoon()}
+
+// ---- sincronización con un Gist privado de GitHub (entre compu y celu) ----
+const SKEY='finanzas_sync', GFILE='finanzas.json', GDESC='Mis Finanzas - datos (privado)';
+let SY=(()=>{try{return JSON.parse(localStorage.getItem(SKEY))||{}}catch(e){return{}}})(), syMsg='', syT=null;
+const saveSY=()=>{try{localStorage.setItem(SKEY,JSON.stringify(SY))}catch(e){}};
+async function gh(path,opt={}){
+  const r=await fetch('https://api.github.com'+path,Object.assign({},opt,{headers:{Authorization:'Bearer '+SY.token,Accept:'application/vnd.github+json','Content-Type':'application/json'}}));
+  if(!r.ok)throw new Error(r.status===401?'Token inválido o vencido':'GitHub respondió '+r.status);
+  return r.json();
+}
+function pushSoon(){if(!SY.token)return;clearTimeout(syT);syMsg='Guardando…';syT=setTimeout(pushNow,1500)}
+async function pushNow(){
+  try{
+    const body=JSON.stringify({description:GDESC,public:false,files:{[GFILE]:{content:JSON.stringify(S)}}});
+    if(!SY.gist){const g=await gh('/gists',{method:'POST',body});SY.gist=g.id;saveSY()}
+    else await gh('/gists/'+SY.gist,{method:'PATCH',body});
+    syMsg='Guardado en la nube '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+  }catch(e){syMsg='⚠ No se pudo sincronizar: '+e.message}
+  if(tab==='sync')render();
+}
+async function syncNow(){ // trae lo de la nube si es más nuevo; si no, sube lo local
+  if(!SY.token)return;
+  try{
+    if(!SY.gist){const l=await gh('/gists?per_page=100');const g=l.find(x=>x.description===GDESC&&x.files[GFILE]);if(g){SY.gist=g.id;saveSY()}}
+    if(!SY.gist){await pushNow();return}
+    const g=await gh('/gists/'+SY.gist), f=g.files[GFILE];
+    const remote=JSON.parse(f.truncated?await (await fetch(f.raw_url)).text():f.content);
+    if((remote._ts||0)>(S._ts||0)){S=migrar(remote);saveLocal();syMsg='Datos traídos de la nube';render()}
+    else await pushNow();
+  }catch(e){syMsg='⚠ No se pudo sincronizar: '+e.message;if(tab==='sync')render()}
+}
+async function conectar(e){e.preventDefault();SY={token:e.target.token.value.trim()};saveSY();syMsg='Conectando…';render();await syncNow()}
+function desconectar(){if(confirm('¿Desconectar la nube de este dispositivo? Tus datos locales quedan.')){SY={};saveSY();syMsg='';render()}}
+function vSync(){
+  return `<div class="card"><h2>Sincronización en la nube</h2>
+  ${SY.token?`<p>Estado: <b>${esc(syMsg||'conectado')}</b></p>
+  <p class="mut">Cada cambio se guarda solo en un Gist privado de tu GitHub. En otro dispositivo, conectá con el mismo token y se traen tus datos.</p>
+  <p><button class="btn" onclick="syncNow()">Sincronizar ahora</button> <button class="btn ghost" onclick="desconectar()">Desconectar</button></p>`
+  :`<p>Para que lo que cargues (IPC, gastos, deudas) se guarde en la nube y lo veas igual en la compu y en el celu:</p>
+  <ol><li>Creá un token en <a href="https://github.com/settings/tokens/new?scopes=gist&description=Mis%20Finanzas" target="_blank" rel="noopener">GitHub (permiso: solo gist)</a> y copialo.</li><li>Pegalo acá y tocá Conectar.</li><li>Repetí en el otro dispositivo con el mismo token.</li></ol>
+  <form onsubmit="conectar(event)"><label>Token de GitHub<input name="token" type="password" required style="width:280px" autocomplete="off"></label><button class="btn">Conectar</button></form>
+  <p class="mut">El token se guarda solo en este navegador. Con permiso solo de gist no puede tocar tus repos.</p>`}
+  </div>`;
+}
 function ym(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
 function addM(m,n){const [y,mo]=m.split('-').map(Number);return ym(new Date(y,mo-1+n,1))}
 function mLabel(m){const [y,mo]=m.split('-').map(Number);return new Date(y,mo-1,1).toLocaleDateString('es-AR',{month:'short',year:'2-digit'})}
@@ -179,7 +225,7 @@ function delExtra(m){delete S.sueldo.extras[m];save();render()}
 // ---- UI ----
 function render(){
   document.getElementById('nav').innerHTML=TABS.map(([k,l])=>`<button class="${k===tab?'on':''}" onclick="tab='${k}';render()">${l}</button>`).join('');
-  document.getElementById('main').innerHTML=({resumen:vResumen,sueldo:vSueldo,movs:vMovs,deudas:vDeudas,recortes:vRecortes,ahorro:vAhorro})[tab]();
+  document.getElementById('main').innerHTML=({resumen:vResumen,sueldo:vSueldo,movs:vMovs,deudas:vDeudas,recortes:vRecortes,ahorro:vAhorro,sync:vSync})[tab]();
   if(tab==='ahorro')dibujar();
 }
 
@@ -326,6 +372,7 @@ function exportar(){const u=URL.createObjectURL(new Blob([JSON.stringify(S,null,
 function importar(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.movs))throw 0;if(confirm('Esto reemplaza tus datos actuales. ¿Seguir?')){S=Object.assign(load(),d);save();render()}}catch(x){alert('Archivo inválido')}};r.readAsText(f);e.target.value=''}
 
 render();
+syncNow();
 </script>
 </body>
 </html>
