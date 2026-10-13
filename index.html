@@ -63,10 +63,13 @@ function DEF(){return({movs:[],deudas:[{id:'santander',nombre:'Santander refinan
   {id:'bc-personal',nombre:'Banco de Córdoba préstamo personal',cuota:442484.86,cuotas:[446328.17,442884.60,442484.86],restantes:17,inicio:'2026-11'},
   {id:'bc-73',nombre:'Banco de Córdoba préstamo (73 cuotas)',cuota:18230.08,restantes:20,inicio:'2026-11'},
   {id:'sim-tarjeta',nombre:'Préstamo en trámite (36 cuotas, TNA 60%)',cuota:323214.02,restantes:36,inicio:'2026-12',sim:true},
-  {id:'hipotecario',nombre:'Crédito hipotecario (30 años, desde ago 2022)',cuota:192800,restantes:310,inicio:'2026-10'}],seedVer:7,incluirSim:false,deudasMes:[],cortes:{},aj:{meses:24,rend:0,meta:0,inicial:0},
+  {id:'hipotecario',nombre:'Crédito hipotecario (30 años, desde ago 2022)',cuota:192800,restantes:310,inicio:'2026-10'}],seedVer:8,incluirSim:false,
+  fijos:[{id:'starlink',nombre:'Starlink',cat:'Servicios',monto:65000,desde:'2026-10'},
+  {id:'gnc',nombre:'GNC (carga cada 2 días)',cat:'Transporte',monto:12000,cadaDias:2,desde:'2026-10'},
+  {id:'peaje',nombre:'Peaje',cat:'Transporte',monto:80000,desde:'2026-10'}],deudasMes:[],cortes:{},aj:{meses:24,rend:0,meta:0,inicial:0},
   sueldo:{base:{mes:'2025-04',monto:1200000},extras:{'2026-07':200000},ipcEst:2,
   ipc:{'2025-04':2.8,'2025-05':1.5,'2025-06':1.6,'2025-07':1.9,'2025-08':1.9,'2025-09':2.1,'2025-10':2.3,'2025-11':2.5,'2025-12':2.8,'2026-01':2.9,'2026-02':2.9,'2026-03':3.4,'2026-04':2.6,'2026-05':2.1,'2026-06':1.9,'2026-07':2.1}}})}
-function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s){const r=Object.assign(DEF(),s);if((s.seedVer||0)<7){const ids=new Set((s.deudas||[]).map(x=>x.id));DEF().deudas.forEach(x=>{if(!ids.has(x.id))r.deudas=[...(r.deudas||[]),x]});r.seedVer=7}return r}}catch(e){}return DEF()}
+function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s){const r=Object.assign(DEF(),s);if((s.seedVer||0)<8){const fid=new Set((r.fijos||[]).map(x=>x.id));DEF().fijos.forEach(x=>{if(!fid.has(x.id))r.fijos=[...(r.fijos||[]),x]});const ids=new Set((r.deudas||[]).map(x=>x.id));DEF().deudas.forEach(x=>{if(!ids.has(x.id))r.deudas=[...(r.deudas||[]),x]});r.seedVer=8}return r}}catch(e){}return DEF()}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){alert('No se pudo guardar en el navegador. Usá Exportar para respaldar.')}}
 function ym(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
 function addM(m,n){const [y,mo]=m.split('-').map(Number);return ym(new Date(y,mo-1+n,1))}
@@ -79,7 +82,10 @@ const sum=a=>a.reduce((x,y)=>x+y,0);
 // ---- cálculos ----
 const movsMes=m=>S.movs.filter(x=>x.fecha.startsWith(m));
 const ingMes=m=>sum(movsMes(m).filter(x=>x.tipo==='ingreso').map(x=>x.monto))+sum(tablaSueldo().filas.filter(f=>f.cobro===m).map(f=>f.monto));
-const gasMes=m=>sum(movsMes(m).filter(x=>x.tipo==='gasto').map(x=>x.monto));
+// gastos fijos recurrentes: monto mensual, o monto cada N días (≈30,4 días por mes)
+const mensualFijo=x=>Math.round(x.cadaDias?x.monto*30.4/x.cadaDias:x.monto);
+const fijosMes=m=>(S.fijos||[]).filter(x=>x.desde<=m);
+const gasMes=m=>sum(movsMes(m).filter(x=>x.tipo==='gasto').map(x=>x.monto))+sum(fijosMes(m).map(mensualFijo));
 const off=d=>d.inicio?Math.max(0,(+d.inicio.slice(0,4)-new Date().getFullYear())*12+(+d.inicio.slice(5)-1-new Date().getMonth())):0;
 // cuota k-ésima pendiente (0 = la próxima): usa d.cuotas si se conoce el monto de ese mes, si no d.cuota
 const cuotaEn=(d,k)=>d.cuotas&&k<d.cuotas.length?d.cuotas[k]:d.cuota;
@@ -96,9 +102,11 @@ function ultimosMeses(){ // hasta 3 meses con datos, contando el actual y hacia 
 }
 function promedios(){
   const ms=ultimosMeses(), n=Math.max(ms.length,1);
-  const ing=sum(ms.map(ingMes))/n;
+  const fs_=tablaSueldo().filas; // ingresos: promedio de otros ingresos cargados + sueldo vigente
+  const ing=sum(ms.map(m=>sum(movsMes(m).filter(x=>x.tipo==='ingreso').map(x=>x.monto))))/n+fs_[fs_.length-1].monto;
   const porCat={}, presc={};
   ms.forEach(m=>movsMes(m).filter(x=>x.tipo==='gasto').forEach(x=>{porCat[x.cat]=(porCat[x.cat]||0)+x.monto/n;if(x.prescindible)presc[x.cat]=(presc[x.cat]||0)+x.monto/n}));
+  fijosMes(ym(new Date())).forEach(x=>{const v=mensualFijo(x);porCat[x.cat]=(porCat[x.cat]||0)+v;if(x.prescindible)presc[x.cat]=(presc[x.cat]||0)+v});
   return{ms,ing,gas:sum(Object.values(porCat)),porCat,presc};
 }
 function ahorroCortes(){const p=promedios();return sum(Object.entries(S.cortes).map(([c,pc])=>(p.porCat[c]||0)*pc/100))}
@@ -177,7 +185,7 @@ function render(){
 
 function vResumen(){
   const ing=ingMes(mesSel), gas=gasMes(mesSel), cu=cuotasDeMes(mesSel), bal=ing-gas-cu;
-  const cats={};movsMes(mesSel).filter(x=>x.tipo==='gasto').forEach(x=>cats[x.cat]=(cats[x.cat]||0)+x.monto);
+  const cats={};movsMes(mesSel).filter(x=>x.tipo==='gasto').forEach(x=>cats[x.cat]=(cats[x.cat]||0)+x.monto);fijosMes(mesSel).forEach(x=>cats[x.cat]=(cats[x.cat]||0)+mensualFijo(x));
   const lista=Object.entries(cats).sort((a,b)=>b[1]-a[1]), max=lista.length?lista[0][1]:1;
   const meses=[];for(let i=5;i>=0;i--)meses.push(addM(ym(new Date()),-i));
   const mx=Math.max(1,...meses.map(m=>Math.max(ingMes(m),gasMes(m)+cuotasDeMes(m))));
@@ -205,12 +213,27 @@ function vMovs(){
     <label style="flex-direction:row;align-items:center;gap:6px"><input name="presc" type="checkbox"> Prescindible</label>
     <button class="btn">Agregar</button>
   </form></div>
+  <div class="card scroll"><h2>Gastos fijos recurrentes</h2>
+  <form onsubmit="addFijo(event)">
+    <label>Nombre<input name="nombre" required placeholder="Netflix, gimnasio…"></label>
+    <label>Categoría<select name="cat">${CATS.map(c=>`<option>${c}</option>`).join('')}</select></label>
+    <label>Monto<input name="monto" type="number" min="0" step="any" required style="width:120px"></label>
+    <label>Cada (días)<input name="dias" type="number" min="1" step="1" placeholder="mensual" style="width:100px"></label>
+    <label>Desde<input name="desde" type="month" value="${ym(new Date())}" required></label>
+    <label style="flex-direction:row;align-items:center;gap:6px"><input name="presc" type="checkbox"> Prescindible</label>
+    <button class="btn">Agregar</button>
+  </form>
+  ${(S.fijos||[]).length?`<table style="margin-top:10px"><tr><th>Nombre</th><th>Categoría</th><th>Frecuencia</th><th class="n">Por mes</th><th></th></tr>${S.fijos.map(x=>`<tr><td>${esc(x.nombre)}${x.prescindible?' <span class="tag p">prescindible</span>':''}</td><td>${esc(x.cat)}</td><td>${fmt(x.monto)} ${x.cadaDias?'cada '+x.cadaDias+' días':'por mes'}</td><td class="n">${fmt(mensualFijo(x))}</td><td style="white-space:nowrap"><button class="btn ghost" onclick="togglePresc('${x.id}')">Prescindible</button> <button class="x" onclick="delFijo('${x.id}')" title="Borrar">✕</button></td></tr>`).join('')}<tr><th colspan="3">Total fijos</th><th class="n">${fmt(sum(S.fijos.map(mensualFijo)))}</th><th></th></tr></table>`:''}
+  <p class="mut" style="margin:8px 0 0">Se suman solos a los gastos de cada mes desde la fecha indicada. No los cargues además como movimientos.</p></div>
   <div class="card scroll"><h2>Movimientos${S.movs.length>200?' (últimos 200)':''}</h2>
   ${lista.length?`<table><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th class="n">Monto</th><th></th></tr>${lista.map(x=>`<tr><td>${x.fecha}</td><td>${x.tipo==='ingreso'?'<span class="tag">Ingreso</span>':esc(x.cat)+(x.prescindible?' <span class="tag p">prescindible</span>':'')}</td><td>${esc(x.desc||'')}</td><td class="n ${x.tipo==='ingreso'?'ok':''}">${x.tipo==='ingreso'?'+':'−'}${fmt(x.monto)}</td><td><button class="x" onclick="delMov('${x.id}')" title="Borrar">✕</button></td></tr>`).join('')}</table>`:'<p class="mut">Todavía no cargaste nada.</p>'}</div>`;
 }
 function addMov(e){e.preventDefault();const f=e.target,ing=f.tipo.value==='ingreso';
   S.movs.push({id:uid(),fecha:f.fecha.value,tipo:f.tipo.value,cat:ing?'Ingreso':f.cat.value,desc:f.desc.value.trim(),monto:Math.abs(+f.monto.value),prescindible:!ing&&f.presc.checked});
   save();render()}
+function addFijo(e){e.preventDefault();const f=e.target,d=Math.floor(+f.dias.value);(S.fijos=S.fijos||[]).push({id:uid(),nombre:f.nombre.value.trim(),cat:f.cat.value,monto:+f.monto.value,cadaDias:d>0?d:undefined,desde:f.desde.value,prescindible:f.presc.checked});save();render()}
+function delFijo(id){S.fijos=S.fijos.filter(x=>x.id!==id);save();render()}
+function togglePresc(id){const x=S.fijos.find(y=>y.id===id);if(x){x.prescindible=!x.prescindible;save();render()}}
 function delMov(id){S.movs=S.movs.filter(x=>x.id!==id);save();render()}
 
 function vDeudas(){
